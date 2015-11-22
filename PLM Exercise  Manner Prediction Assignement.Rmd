@@ -1,0 +1,107 @@
+---
+title: "PLM- Exercise. Manner -Prediction Assignement"
+author: "San K"
+date: "15 November 2015"
+output: html_document
+---
+
+# Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+# Data 
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. Their data to be used for this kind of assignment. 
+
+The training & test data sets are downloaded directly to avoide any dependentcies on file paths.
+All miscellaneous NA, #DIV/0! and empty fields are read in as NA.
+```{r}
+pmlTrainOriginal <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", na.strings=c("NA", "#DIV/0!", "") )
+pmlTestOriginal <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", na.strings=c("NA", "#DIV/0!", "") )
+```
+
+Load requried libraries. Also set the seed so that we will consitant results.
+```{r, results='hide', message=FALSE}
+library(Hmisc); library(caret); library(randomForest); library(foreach); library(doParallel)
+set.seed(1234)
+```
+
+Undestand the data we are dealing with.
+```{r, results='hide', message=FALSE}
+str(pmlTrainOriginal); summary(pmlTrainOriginal)
+```
+
+Clean up Data. First, remove unnessary coloumns (First 6 columns).
+Then, use 'apply(<name of dataFrame>, 2<for getting colimn stats>, function(x) {sum(is.na(s)})' to select where all records have not NAs.
+```{r}
+pmlTrain <-pmlTrainOriginal[, 7:160]
+pmlTest <- pmlTestOriginal[, 7:160]
+
+keepCol<- apply(!is.na(pmlTrain), 2, sum) > 19621 #Sum of not NAs need to be 19622. Added the > sign incase new records are added in the original dataset.
+
+pmlTrain <- pmlTrain[, keepCol]
+pmlTest  <- pmlTest[, keepCol]
+dim(pmlTrain)
+```
+
+Now we need to create Data Partition to evaluate our models. Lets take 70% for training.
+```{r}
+inTrain <- createDataPartition(y=pmlTrain$classe, p=0.7, list=FALSE )
+training <- pmlTrain[inTrain,]
+testing <- pmlTrain[-inTrain,]
+```
+
+# Correlation Analysis
+```{r}
+correlation <- caret::findCorrelation(cor(training[, 1:52]), cutoff=0.80);
+# Variables which are correlated
+names(training)[correlation]
+# Sample plot
+qplot(roll_belt, pitch_belt, colour=classe, data=training)
+```
+
+
+# Modelling
+
+```{r}
+library(doParallel)
+x <- training[-ncol(training)]
+y <- training$classe
+
+library(foreach); library(randomForest); 
+rf <- foreach(ntree=rep(150, 6), .combine=randomForest::combine, .packages='randomForest') %dopar% {
+  randomForest(x, y, ntree=ntree) 
+}
+
+#install.packages("e1071")
+predPMLtrain <- predict(rf, newdata=training)
+confusionMatrix(predPMLtrain,training$classe)
+
+predPMLtest <- predict(rf, newdata=testing)
+confusionMatrix(predPMLtest,testing$classe)
+```
+I have developed PCA ande few other models such as svmRadial (Suppoart Vector Machine - Radial) and LogitBoost (Logit Boosted Model) using the caTools package.
+However, the Accuracy of Random Forest was lot higher in trainning & testing sets compared to all other models.
+
+
+#   Model Validation (Obtained from Coursera)
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+rfValid <- predict(rf, pmlTest);  # Random Forest
+pml_write_files(rfValid)
+```
+
+# Conclusion
+Confusion matrix clearly shows that our model is damn good :). It feels as too good to be true. Possibly the random model is overfitting.
+Following screenshot shows that ou model worked perfecto. 20/20!
+```{r}
+library(png)
+img <- readPNG("C:/Users/San/Dropbox/Coursera/PracticalMachineLearning/Project/SubmissionResults.png")
+plot(0, type='n', xlim=0:1, ylim=0:1, main="Submission Results (Not the best use, but this gives the idea)")
+rasterImage(img, 0, 0, 1, 1)
+```
